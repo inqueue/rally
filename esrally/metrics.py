@@ -897,25 +897,27 @@ class EsMetricsStore(MetricsStore):
         MetricsStore.open(self, race_id, race_timestamp, track_name, challenge_name, car_name, ctx, create)
         self._index = self.index_name()
         # reduce a bit of noise in the metrics cluster log
-        if create:
-            # always update the mapping to the latest version
-            self._client.put_template("rally-metrics", self._get_template())
-            if not self._client.exists(index=self._index):
-                self._client.create_index(index=self._index)
-            else:
-                self.logger.info("[%s] already exists.", self._index)
-        else:
-            # we still need to check for the correct index name - prefer the one with the suffix
-            new_name = self._migrated_index_name(self._index)
-            if self._client.exists(index=new_name):
-                self._index = new_name
+        # if create:
+        #    # always update the mapping to the latest version
+        #    self._client.put_template("rally-metrics", self._get_template())
+        #    if not self._client.exists(index=self._index):
+        #        self._client.create_index(index=self._index)
+        #    else:
+        #        self.logger.info("[%s] already exists.", self._index)
+        # else:
+        #    # we still need to check for the correct index name - prefer the one with the suffix
+        #    new_name = self._migrated_index_name(self._index)
+        #    if self._client.exists(index=new_name):
+        #        self._index = new_name
 
         # ensure we can search immediately after opening
         self._client.refresh(index=self._index)
 
     def index_name(self):
-        ts = time.from_iso8601(self._race_timestamp)
-        return "rally-metrics-%04d-%02d" % (ts.year, ts.month)
+        # ts = time.from_iso8601(self._race_timestamp)
+        ## Tempporarily modify to use a time series data stream
+        # return "rally-metrics-%04d-%02d" % (ts.year, ts.month)
+        return "tsds-rally-metrics"
 
     def _migrated_index_name(self, original_name):
         return f"{original_name}.new"
