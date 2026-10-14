@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import argparse
 from pathlib import Path
 from unittest import mock
 
@@ -145,3 +146,87 @@ class TestRunWithRay:
 
         kill.assert_called_once_with()
         with_ray.assert_called_once_with(runnable, cfg)
+
+def test_race_admin_client_options_are_stored_without_default_timeout():
+    arg_parser = rally.create_arg_parser()
+    args = arg_parser.parse_args(
+        [
+            "race",
+            "--pipeline=benchmark-only",
+            "--client-options=use_ssl:true,timeout:90,api_key:'bench'",
+            "--admin-client-options=api_key:'admin'",
+        ]
+    )
+    cfg = config.Config()
+
+    rally.configure_connection_params(arg_parser, args, cfg)
+
+    assert cfg.opts("client", "admin.options").default_or_first == {"api_key": "admin"}
+    benchmark = cfg.opts("client", "options").default_or_first
+    assert benchmark["api_key"] == "bench"
+    assert benchmark["timeout"] == 90
+    assert benchmark["use_ssl"] is True
+
+
+def test_create_track_does_not_require_admin_client_options():
+    arg_parser = rally.create_arg_parser()
+    args = arg_parser.parse_args(["create-track", "--track=t", "--indices=i", "--target-hosts=localhost:9200"])
+    cfg = config.Config()
+
+    rally.configure_connection_params(arg_parser, args, cfg)
+
+    assert not hasattr(args, "admin_client_options")
+    assert cfg.opts("client", "admin.options", mandatory=False) is None
+
+
+def test_admin_client_options_reject_unknown_cluster_keys():
+    arg_parser = rally.create_arg_parser()
+    args = arg_parser.parse_args(
+        [
+            "race",
+            "--pipeline=benchmark-only",
+            "--target-hosts=localhost:9200",
+            "--client-options=timeout:60",
+            '--admin-client-options={"defaut":{"api_key":"admin-key"}}',
+        ]
+    )
+    cfg = config.Config()
+
+    with pytest.raises(SystemExit):
+        rally.configure_connection_params(arg_parser, args, cfg)
+
+
+def test_admin_client_options_may_omit_clusters():
+    arg_parser = rally.create_arg_parser()
+    args = arg_parser.parse_args(
+        [
+            "race",
+            "--pipeline=benchmark-only",
+            '--target-hosts={"default":["127.0.0.1:9200"],"remote":["10.0.0.1:9200"]}',
+            '--client-options={"default":{"timeout":60},"remote":{"timeout":60}}',
+            '--admin-client-options={"default":{"api_key":"admin"}}',
+        ]
+    )
+    cfg = config.Config()
+
+    rally.configure_connection_params(arg_parser, args, cfg)
+
+    assert set(cfg.opts("client", "admin.options").all_client_options) == {"default"}
+
+
+def test_redact_namespace_masks_client_credentials_without_changing_args():
+    args = argparse.Namespace(
+        client_options="api_key:'secret'",
+        admin_client_options="basic_auth_password:'pw'",
+        track="geonames",
+    )
+
+    redacted = rally.redact_namespace(args)
+
+    assert args.client_options == "api_key:'secret'"
+    assert args.admin_client_options == "basic_auth_password:'pw'"
+    assert redacted.client_options == "*****"
+    assert redacted.admin_client_options == "*****"
+    assert redacted.track == "geonames"
+    assert "secret" not in str(redacted)
+    assert "pw" not in str(redacted)
